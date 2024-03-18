@@ -1,51 +1,122 @@
 import express from 'express';
-import expressWs from "express-ws";
 import cors from 'cors';
-import {ActiveConnections, IncomingMessage} from "./types";
+import mongoose from "mongoose";
+import config from "./config";
+import userRouter from "./routers/users";
+import crypto from "crypto";
+import {ActiveConnections, IncomingMessage, IUser} from "./types";
+import expressWs from "express-ws";
+import User from "./models/User";
+import Message from "./models/Message";
 
 const app = express();
-expressWs(app);
-
 const port = 8000;
 
+app.use(express.static('public'));
+app.use(express.json());
 app.use(cors());
+app.use('/users', userRouter);
+
+expressWs(app);
 
 const router = express.Router();
-
+let user: IUser | null = null;
 const activeConnections: ActiveConnections = {};
 
-router.ws('/chat', (ws, _req, _next) => {
+router.ws('/chatWs',  (ws, _req, _next) => {
     const id = crypto.randomUUID();
-    console.log('Client connected', id);
     activeConnections[id] = ws;
-    let username = 'Anonymous';
 
-    ws.send(JSON.stringify({type: 'WELCOME', payload: 'Hello, you have connected to the chat!'}));
+    ws.on('message', async(msg) => {
+        const decodedMessage = JSON.parse(msg.toString()) as IncomingMessage;
 
-    ws.on('message', (message) => {
-       console.log(message.toString());
-       const parsedMessage = JSON.parse(message.toString()) as IncomingMessage;
-        if(parsedMessage.type === 'SET_USERNAME') {
-            username = parsedMessage.payload;
-        } else if (parsedMessage.type === 'SEND_MESSAGE') {
-            Object.values(activeConnections).forEach(connection => {
-                const outgoingMsg = {type: 'NEW_MESSAGE', payload: {
-                        username,
-                        message: parsedMessage.payload
-                    }};
-                connection.send(JSON.stringify(outgoingMsg));
-            });
+        switch (decodedMessage.type) {
+            case 'LOGIN':
+                user = await User.findOne({ token: decodedMessage.payload }, '_id username');
+                if (!user) return;
+
+                const users = await User.find({active:true}, '_id username');
+                const messages = await Message
+                    .find()
+                    .populate('author', 'username')
+                    .limit(30);
+
+                ws.send(JSON.stringify({
+                    type: 'LOGIN_SUCCESS',
+                    payload: {users,messages}
+                }));
+
+                Object.keys(activeConnections).forEach(key => {
+                    const conn = activeConnections[key];
+
+                    if (key !== id) {
+                        conn.send(JSON.stringify({
+                            type: 'NEW_USER',
+                            payload: {current: user}
+                        }));
+                    }
+                });
+
+                break;
+            case 'LOGOUT':
+                const logoutUser = await User.findOne({ token: decodedMessage.payload }, '_id username');
+
+                Object.keys(activeConnections).forEach(key => {
+                    const conn = activeConnections[key];
+
+                    conn.send(JSON.stringify({
+                        type: 'USER_LOGOUT',
+                        payload: {current: logoutUser}
+                    }));
+                });
+
+                break;
+            case 'SEND_MESSAGE':
+                if (user) {
+                    const newMessage = new Message({
+                        author: user._id,
+                        text: decodedMessage.payload
+                    });
+
+                    await newMessage.save();
+
+                    Object.keys(activeConnections).forEach(key => {
+                        const conn = activeConnections[key];
+
+                        conn.send(JSON.stringify({
+                            type: 'NEW_MESSAGE',
+                            payload: {
+                                current: {
+                                    _id: newMessage._id,
+                                    author: {
+                                        _id: user?._id,
+                                        username: user?.username
+                                    },
+                                    text: newMessage.text
+                                }
+                            }
+                        }));
+                    });
+                }
+
+                break;
+            default:
+                console.log('Unknown message type:', decodedMessage.type);
         }
-    });
-
-    ws.on('close', () => {
-       console.log('Client disconnected', id);
-       delete activeConnections[id];
     });
 });
 
-app.use(router);
 
-app.listen(port, () => {
-    console.log(`Server started on ${port} port!`);
-})
+const run = async () => {
+    await mongoose.connect(config.mongoose.db);
+
+    app.listen(port, () => {
+        console.log(`Server started on ${port} port!`);
+    });
+
+    process.on('exit', () => {
+        mongoose.disconnect();
+    })
+};
+
+void run();
