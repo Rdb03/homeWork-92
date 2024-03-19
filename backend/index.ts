@@ -20,12 +20,12 @@ app.use('/users', userRouter);
 expressWs(app);
 
 const router = express.Router();
-let user: IUser | null = null;
 const activeConnections: ActiveConnections = {};
 
-router.ws('/chatWs',  (ws, _req, _next) => {
+router.ws('/chat',  (ws, _req, _next) => {
     const id = crypto.randomUUID();
     activeConnections[id] = ws;
+    let user: IUser | null = null;
 
     ws.on('message', async(msg) => {
         const decodedMessage = JSON.parse(msg.toString()) as IncomingMessage;
@@ -35,15 +35,19 @@ router.ws('/chatWs',  (ws, _req, _next) => {
                 user = await User.findOne({ token: decodedMessage.payload }, '_id username');
                 if (!user) return;
 
-                const users = await User.find({active:true}, '_id username');
+                const users = await User.find({ active: true }, '_id username');
+
                 const messages = await Message
                     .find()
-                    .populate('author', 'username')
-                    .limit(30);
+                    .limit(30)
+                    .sort({ date: -1 })
+                    .populate('author', 'username');
+
+                messages.reverse();
 
                 ws.send(JSON.stringify({
                     type: 'LOGIN_SUCCESS',
-                    payload: {users,messages}
+                    payload: { users, messages}
                 }));
 
                 Object.keys(activeConnections).forEach(key => {
@@ -52,30 +56,17 @@ router.ws('/chatWs',  (ws, _req, _next) => {
                     if (key !== id) {
                         conn.send(JSON.stringify({
                             type: 'NEW_USER',
-                            payload: {current: user}
+                            payload: { current: user }
                         }));
                     }
                 });
-
-                break;
-            case 'LOGOUT':
-                const logoutUser = await User.findOne({ token: decodedMessage.payload }, '_id username');
-
-                Object.keys(activeConnections).forEach(key => {
-                    const conn = activeConnections[key];
-
-                    conn.send(JSON.stringify({
-                        type: 'USER_LOGOUT',
-                        payload: {current: logoutUser}
-                    }));
-                });
-
                 break;
             case 'SEND_MESSAGE':
                 if (user) {
                     const newMessage = new Message({
                         author: user._id,
-                        text: decodedMessage.payload
+                        text: decodedMessage.payload,
+                        date: new Date()
                     });
 
                     await newMessage.save();
@@ -92,7 +83,8 @@ router.ws('/chatWs',  (ws, _req, _next) => {
                                         _id: user?._id,
                                         username: user?.username
                                     },
-                                    text: newMessage.text
+                                    text: newMessage.text,
+                                    date: newMessage.date
                                 }
                             }
                         }));
@@ -104,8 +96,20 @@ router.ws('/chatWs',  (ws, _req, _next) => {
                 console.log('Unknown message type:', decodedMessage.type);
         }
     });
+
+    ws.on('close', async () => {
+        const onlineUsers = await User.find({ active: true }, '_id username');
+        Object.keys(activeConnections).forEach(key => {
+            const conn = activeConnections[key];
+            conn.send(JSON.stringify({
+                type: 'USER_LOGOUT',
+                payload: {users: onlineUsers}
+            }));
+        });
+    });
 });
 
+app.use(router);
 
 const run = async () => {
     await mongoose.connect(config.mongoose.db);

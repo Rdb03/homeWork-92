@@ -3,7 +3,6 @@ import bcrypt from "bcrypt";
 import {randomUUID} from "crypto";
 import {UserFields, UserMethods, UserModel} from "../types";
 
-
 const SALT_WORK_FACTOR = 10;
 
 const Schema = mongoose.Schema;
@@ -40,13 +39,17 @@ const UserSchema = new Schema<UserFields, UserModel, UserMethods>({
     role: {
         type: String,
         required: true,
-        enum: ['user', 'admin'],
+        enum: ['user', 'moderator'],
         default: 'user'
     },
     displayName: {
         type: String,
         required: true,
     },
+    active: {
+        type: Boolean,
+        required: true,
+    }
 });
 
 UserSchema.methods.checkPassword = function(password: string) {

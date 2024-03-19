@@ -17,6 +17,7 @@ userRouter.post('/', imagesUpload.single('image'), async (req, res, next) => {
             username: req.body.username,
             password: req.body.password,
             displayName: req.body.displayName,
+            active: true,
         });
 
         user.generateToken();
@@ -42,6 +43,7 @@ userRouter.post('/sessions', async (req, res, next) => {
             return res.status(422).send({error: 'Password is wrong!'});
         }
 
+        user.active = true;
         user.generateToken();
         await user.save();
 
@@ -62,6 +64,7 @@ userRouter.delete('/sessions', async (req, res, next) => {
 
         if (!user) return res.send(success);
 
+        user.active = false;
         user.generateToken();
         user.save();
 

@@ -16,14 +16,17 @@ export interface IUser {
     password: string;
     token: string;
     role: string;
+    active: boolean;
 }
 
 export interface UserFields {
+    _id: string;
     username: string,
     password: string,
     token: string,
     role: string,
     displayName: string;
+    active: boolean;
 }
 
 interface UserMethods {
