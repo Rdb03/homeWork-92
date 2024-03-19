@@ -89,7 +89,9 @@ const Messages = () => {
     setMessageText("");
   };
 
-    console.log(messages)
+    const handleDelete = async (id: string) => {
+        console.log(id);
+    };
 
   return (
       <>
@@ -99,9 +101,16 @@ const Messages = () => {
             <Grid sx={{borderBottom: '3px solid black', textAlign: 'center'}}>
               <Typography variant="h4">Messages</Typography>
             </Grid>
-            {messages.map((item) => (
-                <Typography sx={{paddingLeft: '20px'}} key={item._id}>{item.author.username}: {item.text}</Typography>
-            ))}
+              {messages.map((item) => (
+                  <Grid key={item._id} sx={{display: 'flex', alignItems: 'center'}}>
+                      <Typography sx={{paddingLeft: '20px'}}>
+                          {item.author.username}: {item.text}
+                      </Typography>
+                      {user?.role === 'moderator' && (
+                          <Button sx={{marginLeft: 'auto', marginRight: '30px', height: '15px'}} variant="outlined" color="error" onClick={() => handleDelete(item._id)}>Delete</Button>
+                      )}
+                  </Grid>
+              ))}
           </Grid>
         </Grid>
         <form style={{marginTop: 'auto'}} onSubmit={sendMessage}>
